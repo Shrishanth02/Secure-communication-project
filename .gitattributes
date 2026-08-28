@@ -1,0 +1,10 @@
+# Normalize line endings on commit; silences LF/CRLF warnings across platforms.
+* text=auto
+
+# Binary assets (never line-ending-normalized).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.sqlite3 binary
