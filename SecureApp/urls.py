@@ -13,4 +13,5 @@ urlpatterns = [path("index.html", views.index, name="index"),
 			path("DownloadFileAction", views.DownloadFileAction, name="DownloadFileAction"),
 			path("FileIntegrity", views.FileIntegrity, name="FileIntegrity"),
 			path("FileIntegrityAction", views.FileIntegrityAction, name="FileIntegrityAction"),
+			path("Logout", views.Logout, name="Logout"),
 ]

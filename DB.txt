@@ -1,12 +1,13 @@
-create database secureapp;
-use secureapp;
+This project now uses SQLite and the Django ORM — no manual SQL or database
+server is required.
 
-create table signup(username varchar(50) primary key,
-password varchar(50),
-contact_no varchar(15),
-gender varchar(20),
-email varchar(50),
-address varchar(50));
+The schema (the Account and SecureFile tables) is created automatically by:
 
-create table files(owner varchar(50), filename varchar(50), hashcode varchar(300), upload_date varchar(30));
+    python manage.py migrate
 
+See README.md for full setup instructions.
+
+--------------------------------------------------------------------------
+Legacy note: earlier versions used MySQL with raw, string-concatenated SQL,
+which was vulnerable to SQL injection. That has been replaced with the ORM.
+See SECURITY.md, finding #4.

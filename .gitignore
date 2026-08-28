@@ -56,3 +56,6 @@ desktop.ini
 # Uploaded/generated secure files (optional: keep folder structure but not contents)
 SecureApp/static/files/*
 !SecureApp/static/files/.gitkeep
+
+# Server-side cryptographic keystore (the receiver private key must never be committed)
+SecureApp/secure_keystore/

@@ -1,265 +1,260 @@
-from django.shortcuts import render
-from django.template import RequestContext
-from django.contrib import messages
-from django.http import HttpResponse
 import os
-from django.core.files.storage import FileSystemStorage
-import pymysql
-import codecs
-import random
-import pyaes, pbkdf2, binascii, os, secrets
 import base64
-import hashlib
-import datetime
 
-global uname, filename, shared_key
+from django.conf import settings
+from django.shortcuts import render, redirect
+from django.http import HttpResponse
+from django.utils.html import escape
+from django.contrib.auth.hashers import make_password, check_password
+from cryptography.exceptions import InvalidTag
 
-space0 = "​"
-space1 = "‌"
+from .models import Account, SecureFile
+from .crypto_utils import (
+    encrypt_file,
+    decrypt_file,
+    sha256_hex,
+    hide,
+    show,
+    SPACE0,
+    SPACE1,
+)
 
-def hide(text,message):
-    message = "".join(format(ord(i),"08b") for i in str(message))
-    midpoint = int((len(text)/2)//1)
-    result = ""
-    for i in list(str(message)):
-        result += space0 if i == "0" else space1 if i == "1" else ""
-    return text[:midpoint]+result+text[midpoint:]
+FILES_DIR = os.path.join(settings.BASE_DIR, "SecureApp", "static", "files")
 
-def show(text):
-    result = ""
-    for i in list(str(text)):
-        if i == space0:
-            result += "0"
-        elif i == space1:
-            result += "1"
-    result = "".join([chr(int(result[i:i+8],2)) for i in range(0,len(result),8)])
-    if result == "":
-        result = None
-    return result
 
-def getDiffieKey():#function to get common secret key between two users as shared1 and shared2
-    P = 23
-    G = 9
-    x1 = random.randint(10,100)
-    x2 = random.randint(10,100)
-    y1, y2 = pow(G, x1) % P, pow(G, x2) % P
-    share1, share2 = pow(y2, x1) % P, pow(y1, x2) % P
-    return share1
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _current_user(request):
+    """Return the logged-in username from the session, or None."""
+    return request.session.get("username")
 
-def getKey(diffie_key): #generating AES key based on Diffie common secret shared key
-    password = "s3cr3t*c0d3"
-    passwordSalt = str(diffie_key)#get AES key using diffie
-    key = pbkdf2.PBKDF2(password, passwordSalt).read(32)
-    return key
 
-def encrypt(plaintext, key): #AES data encryption
-    aes = pyaes.AESModeOfOperationCTR(getKey(key), pyaes.Counter(31129547035000047302952433967654195398124239844566322884172163637846056248223))
-    ciphertext = aes.encrypt(plaintext)
-    return ciphertext
+def _storage_path(owner, filename):
+    """Per-owner on-disk location for a stored (encrypted) file."""
+    safe_owner = os.path.basename(owner)
+    safe_name = os.path.basename(filename)
+    owner_dir = os.path.join(FILES_DIR, safe_owner)
+    os.makedirs(owner_dir, exist_ok=True)
+    return os.path.join(owner_dir, safe_name)
 
-def decrypt(enc, key): #AES data decryption
-    aes = pyaes.AESModeOfOperationCTR(getKey(key), pyaes.Counter(31129547035000047302952433967654195398124239844566322884172163637846056248223))
-    decrypted = aes.decrypt(enc)
-    return decrypted
+
+def _strip_zero_width(text):
+    """Remove the zero-width steganography characters, leaving clean base64."""
+    return "".join(ch for ch in text if ch not in (SPACE0, SPACE1))
+
+
+# ---------------------------------------------------------------------------
+# Public pages
+# ---------------------------------------------------------------------------
+def index(request):
+    return render(request, "index.html", {})
+
+
+def UserLogin(request):
+    return render(request, "UserLogin.html", {})
+
+
+def Signup(request):
+    return render(request, "Signup.html", {})
+
+
+def Logout(request):
+    request.session.flush()
+    return render(request, "index.html", {"data": "You have been logged out."})
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+def SignupAction(request):
+    if request.method != "POST":
+        return redirect("Signup")
+
+    username = request.POST.get("t1", "").strip()
+    password = request.POST.get("t2", "")
+    contact = request.POST.get("t3", "").strip()
+    gender = request.POST.get("t4", "").strip()
+    email = request.POST.get("t5", "").strip()
+    address = request.POST.get("t6", "").strip()
+
+    if not username or not password:
+        return render(request, "Signup.html", {"data": "Username and password are required"})
+
+    if Account.objects.filter(username=username).exists():
+        return render(request, "Signup.html", {"data": username + " Username already exists"})
+
+    # Password is stored as a one-way hash (Argon2, per settings.PASSWORD_HASHERS).
+    Account.objects.create(
+        username=username,
+        password=make_password(password),
+        contact_no=contact,
+        gender=gender,
+        email=email,
+        address=address,
+    )
+    return render(request, "Signup.html", {"data": "Signup Process Completed"})
+
+
+def UserLoginAction(request):
+    if request.method != "POST":
+        return redirect("UserLogin")
+
+    username = request.POST.get("t1", "").strip()
+    password = request.POST.get("t2", "")
+
+    account = Account.objects.filter(username=username).first()
+    if account and check_password(password, account.password):
+        request.session["username"] = account.username
+        return render(request, "UserScreen.html", {"data": "welcome " + account.username})
+
+    return render(request, "UserLogin.html", {"data": "login failed"})
+
+
+# ---------------------------------------------------------------------------
+# File upload / download / integrity
+# ---------------------------------------------------------------------------
+def UploadFile(request):
+    if not _current_user(request):
+        return render(request, "UserLogin.html", {"data": "Please login first"})
+    return render(request, "UploadFile.html", {})
+
 
 def UploadAction(request):
-    if request.method == 'POST':
-        global uname
-        file_data = request.FILES['t1'].read()#read data from uploaded file
-        file_name = request.FILES['t1'].name #get the name of the file
-        file_data = codecs.decode(file_data)#convert binary data to string
-        diffie_key = getDiffieKey()#get Diffie key
-        encrypted_data = encrypt(file_data, diffie_key)#call AES encrypt function to encrypt given file data using diffie key
-        encrypted_data = base64.b64encode(encrypted_data).decode()#convert AES binary data to string to hide diffie key so receiver or file downloader can extract
-        hidden = hide(encrypted_data, diffie_key)#now hide diffie secret key on encrypted data
-        with open('SecureApp/static/files/'+file_name, "wb") as file:
-            file.write(hidden.encode())
-        file.close()
-        hash_object = hashlib.sha1(hidden.encode())
-        hashcode = hash_object.hexdigest()
-        output = file_name+' encrypted using Diffie shared key & AES : '+str(diffie_key)+"<br/>Diffie Key hide inside encrypted File"
-        output += "<br/>Data Integrity will check with Hascode = "+hashcode
-        now = datetime.datetime.now()
-        current_time = now.strftime("%Y-%m-%d %H:%M:%S")
-        db_connection = pymysql.connect(host='127.0.0.1',port = 3306,user = 'root', password = '', database = 'secureapp',charset='utf8')
-        db_cursor = db_connection.cursor()
-        student_sql_query = "INSERT INTO files(owner, filename, hashcode, upload_date) VALUES('"+uname+"','"+file_name+"','"+hashcode+"','"+str(current_time)+"')"
-        db_cursor.execute(student_sql_query)
-        db_connection.commit()
-        context= {'data':output}
-        return render(request, 'UploadFile.html', context)
+    uname = _current_user(request)
+    if not uname:
+        return render(request, "UserLogin.html", {"data": "Please login first"})
+    if request.method != "POST":
+        return redirect("UploadFile")
 
-def DownloadFileAction(request):
-    if request.method == 'GET':
-        global uname
-        filename = request.GET['t1']
-        key = request.GET['t2']
-        with open('SecureApp/static/files/'+filename, "rb") as file:
-            filedata = file.read()
-        file.close()
-        filedata = base64.b64decode(filedata)
-        dec = decrypt(filedata, key)
-        response = HttpResponse(dec, content_type="application/octet-stream")
-        response['Content-Disposition'] = "attachment; filename=%s" % filename
-        return response
+    upload = request.FILES["t1"]
+    file_name = os.path.basename(upload.name)
+    file_data = upload.read()  # raw bytes -> binary-safe
 
-def getHashcode(filename):
-    hashcode = None
-    con = pymysql.connect(host='127.0.0.1',port = 3306,user = 'root', password = '', database = 'secureapp',charset='utf8')
-    with con:
-        cur = con.cursor()
-        cur.execute("select hashcode FROM files where filename='"+filename+"'")
-        rows = cur.fetchall()
-        for row in rows:
-            hashcode = row[0]
-            break
-    return hashcode
+    if SecureFile.objects.filter(owner=uname, filename=file_name).exists():
+        return render(request, "UploadFile.html",
+                      {"data": "A file named " + escape(file_name) + " already exists for your account."})
 
-def FileIntegrityAction(request):
-    if request.method == 'GET':
-        global uname
-        filename = request.GET['t1']
-        hashcode = request.GET['t2']
-        with open('SecureApp/static/files/'+filename, "rb") as file:
-            filedata = file.read()
-        file.close()
-        hash_object = hashlib.sha1(filedata)
-        generated_hashcode = hash_object.hexdigest()
-        output = "File Integrity Failed. Data Changed"
-        if hashcode == generated_hashcode:
-            output = "File Integrity Successful. No Data Changed"
-        context= {'data':output}        
-        return render(request, 'UserScreen.html', context)    
+    # Encrypt: ephemeral-static X25519 ECDH -> HKDF-SHA256 -> AES-256-GCM.
+    result = encrypt_file(file_data)
+    encoded_ct = base64.b64encode(result["ciphertext"]).decode()
 
-def FileIntegrity(request):
-    if request.method == 'GET':
-        global uname
-        output = '<table border=1 align=center width=100%>'
-        font = '<font size="" color="black">'
-        arr = ['Filename', 'Extracted Hidden Diffie Shared Key', 'File Integrity Hashcode', 'Check File Integrity']
-        output += "<tr>"
-        for i in range(len(arr)):
-            output += "<th>"+font+arr[i]+"</th>"
-        output += "</tr>"
-        path = "SecureApp/static/files"
-        for root, dirs, directory in os.walk(path):
-            for j in range(len(directory)):
-                with open(root+"/"+directory[j], "rb") as file:
-                    hidden = file.read()
-                file.close()
-                hashcode = getHashcode(directory[j])
-                hashcode_display = hashcode if hashcode is not None else "No hashcode available"
-                showing = show(hidden.decode())
-                output += "<tr><td>"+font+directory[j]+"</td>"
-                output += "<td>"+font+str(showing)+str(random.randint(1000,100000))+"</td>"
-                output += "<td>"+font+hashcode_display+"</td>"
-                if hashcode is not None:
-                    output += '<td><a href="FileIntegrityAction?t1='+directory[j]+'&t2='+str(hashcode)+'">'+font+'Click Here</a></td></tr>'
-                else:
-                    output += '<td>'+font+'No hashcode to check integrity</td></tr>'
-        context = {'data': output}
-        return render(request, 'UserScreen.html', context)
+    # Demonstration of steganography: hide the (public) ephemeral key in the file.
+    stored_text = hide(encoded_ct, result["ephemeral_pub"])
+    stored_bytes = stored_text.encode("utf-8")
 
+    with open(_storage_path(uname, file_name), "wb") as fh:
+        fh.write(stored_bytes)
+
+    hashcode = sha256_hex(stored_bytes)
+
+    SecureFile.objects.create(
+        owner=uname,
+        filename=file_name,
+        ephemeral_pub=result["ephemeral_pub"],
+        salt=result["salt"],
+        nonce=result["nonce"],
+        hashcode=hashcode,
+    )
+
+    output = (
+        escape(file_name) + " encrypted with X25519 ECDH + AES-256-GCM."
+        + "<br/>Ephemeral public key steganographically hidden inside the file."
+        + "<br/>SHA-256 integrity hashcode = " + hashcode
+    )
+    return render(request, "UploadFile.html", {"data": output})
 
 
 def DownloadFile(request):
-    if request.method == 'GET':
-        global uname
-        output = '<table border=1 align=center width=100%>'
-        font = '<font size="" color="black">'
-        arr = ['Filename', 'Extracted Hidden Diffie Shared Key', 'File Integrity Hashcode', 'Download']
+    uname = _current_user(request)
+    if not uname:
+        return render(request, "UserLogin.html", {"data": "Please login first"})
+
+    rows = SecureFile.objects.filter(owner=uname).order_by("-upload_date")
+    output = '<table border=1 align=center width=100%>'
+    headers = ["Filename", "Extracted Hidden Ephemeral Public Key", "SHA-256 Hashcode", "Download"]
+    output += "<tr>" + "".join("<th>" + h + "</th>" for h in headers) + "</tr>"
+
+    for row in rows:
+        try:
+            with open(_storage_path(uname, row.filename), "r", encoding="utf-8") as fh:
+                stored_text = fh.read()
+            extracted = show(stored_text) or "(none)"
+        except OSError:
+            extracted = "(file missing)"
         output += "<tr>"
-        for i in range(len(arr)):
-            output += "<th>"+font+arr[i]+"</th>"
+        output += "<td>" + escape(row.filename) + "</td>"
+        output += "<td style='word-break:break-all'>" + escape(str(extracted)) + "</td>"
+        output += "<td style='word-break:break-all'>" + escape(row.hashcode) + "</td>"
+        output += '<td><a href="DownloadFileAction?t1=' + str(row.pk) + '">Click Here</a></td>'
         output += "</tr>"
-        path = "SecureApp/static/files"
-        for root, dirs, directory in os.walk(path):
-            for j in range(len(directory)):
-                with open(root+"/"+directory[j], "rb") as file:
-                    hidden = file.read()
-                file.close()
-                showing = show(hidden.decode())
-                hashcode = getHashcode(directory[j])
-                hashcode_display = hashcode if hashcode is not None else "No hashcode available"
-                output += "<tr><td>"+font+directory[j]+"</td>"
-                output += "<td>"+font+str(showing)+str(random.randint(1000,100000))+"</td>"
-                output += "<td>"+font+hashcode_display+"</td>"
-                if showing is not None:
-                    output += '<td><a href="DownloadFileAction?t1='+directory[j]+'&t2='+str(showing)+'">'+font+'Click Here</a></td></tr>'
-                else:
-                    output += '<td>'+font+'Invalid Key</td></tr>'
-        context = {'data': output}
-        return render(request, 'UserScreen.html', context)
-    
-
-def UploadFile(request):
-    if request.method == 'GET':
-       return render(request, 'UploadFile.html', {})  
-
-def UserLogin(request):
-    if request.method == 'GET':
-       return render(request, 'UserLogin.html', {})  
-
-def index(request):
-    if request.method == 'GET':
-       return render(request, 'index.html', {})
-
-def Signup(request):
-    if request.method == 'GET':
-       return render(request, 'Signup.html', {})
-
-def UserLoginAction(request):
-    global uname
-    if request.method == 'POST':
-        username = request.POST.get('t1', False)
-        password = request.POST.get('t2', False)
-        index = 0
-        con = pymysql.connect(host='127.0.0.1',port = 3306,user = 'root', password = '', database = 'secureapp',charset='utf8')
-        with con:
-            cur = con.cursor()
-            cur.execute("select username,password FROM signup")
-            rows = cur.fetchall()
-            for row in rows:
-                if row[0] == username and password == row[1]:
-                    uname = username
-                    index = 1
-                    break		
-        if index == 1:
-            context= {'data':'welcome '+uname}
-            return render(request, 'UserScreen.html', context)
-        else:
-            context= {'data':'login failed'}
-            return render(request, 'UserLogin.html', context)        
-
-def SignupAction(request):
-    if request.method == 'POST':
-        username = request.POST.get('t1', False)
-        password = request.POST.get('t2', False)
-        contact = request.POST.get('t3', False)
-        gender = request.POST.get('t4', False)
-        email = request.POST.get('t5', False)
-        address = request.POST.get('t6', False)
-        output = "none"
-        con = pymysql.connect(host='127.0.0.1',port = 3306,user = 'root', password = '', database = 'secureapp',charset='utf8')
-        with con:
-            cur = con.cursor()
-            cur.execute("select username FROM signup")
-            rows = cur.fetchall()
-            for row in rows:
-                if row[0] == username:
-                    output = username+" Username already exists"
-                    break
-        if output == 'none':
-            db_connection = pymysql.connect(host='127.0.0.1',port = 3306,user = 'root', password = '', database = 'secureapp',charset='utf8')
-            db_cursor = db_connection.cursor()
-            student_sql_query = "INSERT INTO signup(username,password,contact_no,gender,email,address) VALUES('"+username+"','"+password+"','"+contact+"','"+gender+"','"+email+"','"+address+"')"
-            db_cursor.execute(student_sql_query)
-            db_connection.commit()
-            print(db_cursor.rowcount, "Record Inserted")
-            if db_cursor.rowcount == 1:
-                output = 'Signup Process Completed'
-        context= {'data':output}
-        return render(request, 'Signup.html', context)
-      
+    output += "</table>"
+    return render(request, "UserScreen.html", {"data": output})
 
 
+def DownloadFileAction(request):
+    uname = _current_user(request)
+    if not uname:
+        return render(request, "UserLogin.html", {"data": "Please login first"})
+
+    file_id = request.GET.get("t1")
+    row = SecureFile.objects.filter(pk=file_id, owner=uname).first()
+    if not row:  # ownership enforced: cannot download another user's file
+        return render(request, "UserScreen.html", {"data": "File not found or access denied."})
+
+    with open(_storage_path(uname, row.filename), "r", encoding="utf-8") as fh:
+        stored_text = fh.read()
+    ciphertext = base64.b64decode(_strip_zero_width(stored_text))
+
+    try:
+        plaintext = decrypt_file(ciphertext, row.ephemeral_pub, row.salt, row.nonce)
+    except InvalidTag:
+        return render(request, "UserScreen.html",
+                      {"data": "Decryption failed: the file failed AES-GCM authentication (tampered or corrupted)."})
+
+    response = HttpResponse(plaintext, content_type="application/octet-stream")
+    response["Content-Disposition"] = "attachment; filename=%s" % row.filename
+    return response
+
+
+def FileIntegrity(request):
+    uname = _current_user(request)
+    if not uname:
+        return render(request, "UserLogin.html", {"data": "Please login first"})
+
+    rows = SecureFile.objects.filter(owner=uname).order_by("-upload_date")
+    output = '<table border=1 align=center width=100%>'
+    headers = ["Filename", "Stored SHA-256 Hashcode", "Check File Integrity"]
+    output += "<tr>" + "".join("<th>" + h + "</th>" for h in headers) + "</tr>"
+    for row in rows:
+        output += "<tr>"
+        output += "<td>" + escape(row.filename) + "</td>"
+        output += "<td style='word-break:break-all'>" + escape(row.hashcode) + "</td>"
+        output += '<td><a href="FileIntegrityAction?t1=' + str(row.pk) + '">Click Here</a></td>'
+        output += "</tr>"
+    output += "</table>"
+    return render(request, "UserScreen.html", {"data": output})
+
+
+def FileIntegrityAction(request):
+    uname = _current_user(request)
+    if not uname:
+        return render(request, "UserLogin.html", {"data": "Please login first"})
+
+    file_id = request.GET.get("t1")
+    row = SecureFile.objects.filter(pk=file_id, owner=uname).first()
+    if not row:
+        return render(request, "UserScreen.html", {"data": "File not found or access denied."})
+
+    try:
+        with open(_storage_path(uname, row.filename), "rb") as fh:
+            stored_bytes = fh.read()
+    except OSError:
+        return render(request, "UserScreen.html", {"data": "File Integrity Failed. Stored file is missing."})
+
+    generated = sha256_hex(stored_bytes)
+    if generated == row.hashcode:
+        output = "File Integrity Successful. No Data Changed (SHA-256 match)."
+    else:
+        output = "File Integrity Failed. Data Changed (SHA-256 mismatch)."
+    return render(request, "UserScreen.html", {"data": output})

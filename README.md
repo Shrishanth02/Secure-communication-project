@@ -1,141 +1,106 @@
-# Secure Communication using Diffie-Hellman, AES & SHA
+# Secure Communication using ECDH (X25519), AES-256-GCM & SHA-256
 
-A Django-based web application that implements **secure file communication** using:
+A Django web application for **secure file storage and transfer**. A user signs
+up, logs in, and uploads a file — the file is encrypted at rest with modern
+authenticated cryptography, its integrity is verifiable, and it can only be
+downloaded and decrypted by its owner.
 
-- 🔐 **Diffie-Hellman Key Exchange** — Generates a shared secret key between parties
-- 🔒 **AES Encryption** — Encrypts files using the Diffie-Hellman shared key via PBKDF2
-- 🕵️ **Steganography** — Hides the secret key inside the encrypted file using zero-width Unicode characters
-- ✅ **SHA-1 Data Integrity** — Generates & verifies file integrity via hashcodes
-- 👤 **User Authentication** — Signup/Login system with MySQL backend
-
----
-
-## 📋 Requirements
-
-| Dependency | Version |
-|---|---|
-| Python | 3.x |
-| Django | 2.1.7 |
-| PyMySQL | 0.9.3 |
-| pyaes | 1.6.1 |
-| pbkdf2 | 1.3 |
-| MySQL/MariaDB | 5.x+ |
+This project began as a college major project and was **security-hardened**: the
+original implementation used broken, textbook cryptography and contained several
+critical web vulnerabilities. Those were assessed and remediated — see
+[`SECURITY.md`](SECURITY.md) for the full before/after report.
 
 ---
 
-## 🚀 Setup Instructions
-
-### 1. Install Dependencies
-
-```bash
-pip install Django==2.1.7 PyMySQL==0.9.3 pyaes==1.6.1 pbkdf2==1.3
-```
-
-### 2. Setup MySQL Database
-
-Make sure MySQL is running, then execute the SQL from `DB.txt`:
-
-```sql
-CREATE DATABASE secureapp;
-USE secureapp;
-
-CREATE TABLE signup(
-    username varchar(50) PRIMARY KEY,
-    password varchar(50),
-    contact_no varchar(15),
-    gender varchar(20),
-    email varchar(50),
-    address varchar(50)
-);
-
-CREATE TABLE files(
-    owner varchar(50),
-    filename varchar(50),
-    hashcode varchar(300),
-    upload_date varchar(30)
-);
-```
-
-### 3. Configure Database
-
-Edit `Secure/settings.py` if your MySQL credentials differ:
-
-```python
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'secureapp',
-        'HOST': '127.0.0.1',
-        'PORT': '3306',
-        'USER': 'root',
-        'PASSWORD': '',  # Change if you have a password
-    }
-}
-```
-
-### 4. Run the Application
-
-```bash
-python manage.py runserver
-```
-
-Then open your browser at: **http://127.0.0.1:8000/index.html**
-
----
-
-## 🌐 Application Flow
-
-1. **Register** — Create a new account via `/Signup.html`
-2. **Login** — Authenticate via `/UserLogin.html`
-3. **Upload File** — Encrypt and upload a file; the Diffie-Hellman key is steganographically hidden inside the encrypted content
-4. **Download File** — Extract the hidden key and decrypt the file
-5. **File Integrity** — Verify file integrity using SHA-1 hashcodes
-
----
-
-## 🔬 Cryptographic Details
+## 🔐 Cryptographic design
 
 | Step | Algorithm | Purpose |
 |---|---|---|
-| Key Exchange | Diffie-Hellman (P=23, G=9) | Generate shared secret |
-| Key Derivation | PBKDF2 | Derive 256-bit AES key from DH shared key |
-| Encryption | AES-CTR mode | Encrypt file contents |
-| Key Hiding | Zero-width Unicode steganography | Embed DH key in ciphertext |
-| Integrity | SHA-1 | Detect tampering |
+| Key agreement | **X25519 ECDH** (ephemeral-static, "sealed box" style) | Fresh shared secret per file |
+| Key derivation | **HKDF-SHA256** with a random per-file salt | Derive a 256-bit AES key |
+| Encryption | **AES-256-GCM** with a random 96-bit nonce | Confidentiality **and** authenticity (AEAD) |
+| Integrity | **SHA-256** | Detect at-rest tampering of the stored file |
+| Key hiding | Zero-width Unicode steganography | Demo: embeds the **public** ephemeral key in the file |
+
+**How it works:** the server holds one long-lived X25519 *receiver* key pair
+(the private key lives only in a git-ignored keystore). Every upload generates a
+fresh *ephemeral* X25519 key pair; ECDH between the ephemeral private key and the
+receiver public key yields a unique shared secret, which HKDF stretches into an
+AES-256 key. The file is sealed with AES-256-GCM. Only non-secret values
+(ephemeral public key, salt, nonce) are stored. To decrypt, the server combines
+its receiver private key with the stored ephemeral public key to reconstruct the
+same secret — the same construction as a libsodium *sealed box* / ECIES.
+
+Because AES-GCM is an AEAD cipher, any modification to the ciphertext causes
+decryption to fail with an authentication error — tampering cannot go unnoticed.
 
 ---
 
-## 📁 Project Structure
+## 🚀 Setup & run (zero external dependencies)
+
+The app uses **SQLite**, so no database server is required.
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Apply migrations (creates db.sqlite3)
+python manage.py migrate
+
+# 3. Run
+python manage.py runserver
+```
+
+Then open **http://127.0.0.1:8000/index.html**
+
+Optional environment variables (defaults are fine for local development):
+
+```bash
+DJANGO_SECRET_KEY=<a-long-random-string>   # set for any non-local use
+DJANGO_DEBUG=False                          # set for production
+```
+
+---
+
+## 🌐 Application flow
+
+1. **Register** — create an account at `/Signup.html` (passwords are Argon2-hashed).
+2. **Login** — authenticate at `/UserLogin.html` (session-based).
+3. **Upload** — the file is encrypted (X25519 ECDH → HKDF → AES-256-GCM) and stored.
+4. **Download** — the owner recovers and decrypts their own files only.
+5. **Integrity** — verify each stored file against its SHA-256 digest.
+
+---
+
+## 📁 Project structure
 
 ```
 Secure-communication-project/
-├── manage.py               # Django management script
-├── requirements.txt        # Dependencies
-├── DB.txt                  # Database setup SQL
-├── run.bat                 # Quick run script
-├── Secure/                 # Django project settings
-│   ├── settings.py
-│   ├── urls.py
-│   └── wsgi.py
-└── SecureApp/              # Main application
-    ├── views.py            # Core logic (encryption, upload, download)
-    ├── urls.py             # URL routing
-    ├── templates/          # HTML templates
-    │   ├── index.html
-    │   ├── Signup.html
-    │   ├── UserLogin.html
-    │   ├── UserScreen.html
-    │   └── UploadFile.html
+├── manage.py
+├── requirements.txt
+├── README.md
+├── SECURITY.md                 # vulnerability assessment & remediation report
+├── db.sqlite3                  # created by `migrate` (git-ignored)
+├── Secure/                     # Django project settings
+│   ├── settings.py             # SQLite, Argon2 hashers, env-driven secret/debug
+│   └── urls.py
+└── SecureApp/
+    ├── crypto_utils.py         # X25519 ECDH + HKDF + AES-256-GCM + SHA-256 + stego
+    ├── models.py               # Account (hashed pw), SecureFile (crypto params)
+    ├── views.py                # ORM-based views, session auth, ownership checks
+    ├── migrations/
+    ├── templates/
     └── static/
-        ├── style.css
-        ├── images/
-        └── files/          # Encrypted file storage
+        ├── files/              # encrypted file storage (git-ignored)
+        └── secure_keystore/    # receiver private key (git-ignored, never committed)
 ```
 
 ---
 
 ## ⚠️ Notes
 
-- This project is for **educational purposes** — demonstrating cryptographic concepts in a web application
-- The Diffie-Hellman parameters (P=23, G=9) are intentionally simple for demonstration
-- Always run MySQL server before starting the Django application
+- For **educational purposes** — it demonstrates real cryptographic and secure
+  web-development practices.
+- The receiver private key is generated on first run and stored under
+  `SecureApp/secure_keystore/`, which is git-ignored. In production it should be
+  held in a secrets manager / HSM.
