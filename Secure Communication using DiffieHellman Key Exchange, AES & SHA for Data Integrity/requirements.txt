@@ -1,0 +1,4 @@
+pip install Django==2.1.7
+pip install PyMySQL==0.9.3
+pip install pyaes==1.6.1
+pip install pbkdf2==1.3
