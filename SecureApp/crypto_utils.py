@@ -67,8 +67,17 @@ _RECEIVER_KEY_PATH = os.path.join(_KEYSTORE_DIR, "receiver.key")
 
 
 def _load_or_create_receiver_key():
-    """Return the server's long-lived X25519 private key, creating it on first run."""
+    """Return the server's long-lived X25519 private key, creating it on first run.
+
+    The key file is created atomically with owner-only (0600) permissions and
+    the keystore directory is restricted to 0700. (On POSIX these are enforced;
+    on Windows they are best-effort.) In production the key should live in a
+    secrets manager / KMS — see DEPLOYMENT.md."""
     os.makedirs(_KEYSTORE_DIR, exist_ok=True)
+    try:
+        os.chmod(_KEYSTORE_DIR, 0o700)
+    except OSError:
+        pass
     if os.path.exists(_RECEIVER_KEY_PATH):
         with open(_RECEIVER_KEY_PATH, "rb") as fh:
             return X25519PrivateKey.from_private_bytes(fh.read())
@@ -78,28 +87,45 @@ def _load_or_create_receiver_key():
         format=serialization.PrivateFormat.Raw,
         encryption_algorithm=serialization.NoEncryption(),
     )
-    # Write with restrictive intent; the file is also git-ignored.
-    with open(_RECEIVER_KEY_PATH, "wb") as fh:
-        fh.write(raw)
+    # Atomic, owner-only create. O_EXCL closes the race where two workers each
+    # generate a different key on first run.
+    try:
+        fd = os.open(_RECEIVER_KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, raw)
+        finally:
+            os.close(fd)
+    except FileExistsError:
+        with open(_RECEIVER_KEY_PATH, "rb") as fh:
+            return X25519PrivateKey.from_private_bytes(fh.read())
     return private_key
 
 
-def _derive_aes_key(shared_secret, salt):
-    """HKDF-SHA256: stretch a DH shared secret into a 256-bit AES key."""
+_HKDF_INFO_PREFIX = b"secure-communication-file-encryption|"
+
+
+def _derive_aes_key(shared_secret, salt, aad=b""):
+    """HKDF-SHA256: stretch a DH shared secret into a 256-bit AES key, binding
+    the per-file context (aad) into the derivation `info`."""
     return HKDF(
         algorithm=hashes.SHA256(),
         length=32,
         salt=salt,
-        info=b"secure-communication-file-encryption",
+        info=_HKDF_INFO_PREFIX + aad,
     ).derive(shared_secret)
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def encrypt_file(plaintext_bytes):
+def encrypt_file(plaintext_bytes, aad=b""):
     """
     Encrypt raw file bytes.
+
+    `aad` binds the ciphertext (and key derivation) to per-file context such as
+    owner|filename: it is used both as HKDF `info` and as AES-GCM associated
+    data, so a ciphertext cannot be transplanted onto a different file/owner row
+    without failing authentication.
 
     Returns a dict with the ciphertext and the non-secret parameters needed to
     decrypt later:  ciphertext, ephemeral_pub (hex), salt (hex), nonce (hex).
@@ -113,9 +139,9 @@ def encrypt_file(plaintext_bytes):
 
     salt = os.urandom(16)
     nonce = os.urandom(12)
-    key = _derive_aes_key(shared_secret, salt)
+    key = _derive_aes_key(shared_secret, salt, aad)
 
-    ciphertext = AESGCM(key).encrypt(nonce, plaintext_bytes, None)
+    ciphertext = AESGCM(key).encrypt(nonce, plaintext_bytes, aad)
 
     ephemeral_pub_raw = ephemeral_private.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -129,16 +155,21 @@ def encrypt_file(plaintext_bytes):
     }
 
 
-def decrypt_file(ciphertext, ephemeral_pub_hex, salt_hex, nonce_hex):
+def decrypt_file(ciphertext, ephemeral_pub_hex, salt_hex, nonce_hex, aad=b""):
     """
-    Reverse of `encrypt_file`. Raises cryptography.exceptions.InvalidTag if the
-    ciphertext was tampered with (AES-GCM authentication failure).
+    Reverse of `encrypt_file`. `aad` must match what was used to encrypt.
+    Raises cryptography.exceptions.InvalidTag if the ciphertext was tampered
+    with (or the aad/context does not match), and ValueError if any stored
+    parameter is malformed.
     """
     receiver_private = _load_or_create_receiver_key()
-    ephemeral_public = X25519PublicKey.from_public_bytes(bytes.fromhex(ephemeral_pub_hex))
+    pub_bytes = bytes.fromhex(ephemeral_pub_hex)
+    if len(pub_bytes) != 32:
+        raise ValueError("Invalid ephemeral public key length")
+    ephemeral_public = X25519PublicKey.from_public_bytes(pub_bytes)
     shared_secret = receiver_private.exchange(ephemeral_public)
-    key = _derive_aes_key(shared_secret, bytes.fromhex(salt_hex))
-    return AESGCM(key).decrypt(bytes.fromhex(nonce_hex), ciphertext, None)
+    key = _derive_aes_key(shared_secret, bytes.fromhex(salt_hex), aad)
+    return AESGCM(key).decrypt(bytes.fromhex(nonce_hex), ciphertext, aad)
 
 
 def sha256_hex(data_bytes):

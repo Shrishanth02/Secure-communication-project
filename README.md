@@ -5,10 +5,26 @@ up, logs in, and uploads a file — the file is encrypted at rest with modern
 authenticated cryptography, its integrity is verifiable, and it can only be
 downloaded and decrypted by its owner.
 
-This project began as a college major project and was **security-hardened**: the
-original implementation used broken, textbook cryptography and contained several
-critical web vulnerabilities. Those were assessed and remediated — see
-[`SECURITY.md`](SECURITY.md) for the full before/after report.
+This began as a college major project and was **security-hardened and
+penetration-tested**. The original build used broken textbook cryptography and
+had multiple critical web vulnerabilities; those were remediated, then the app
+was put through an automated attack battery and a multi-dimension red-team code
+review. See the two reports:
+
+- [`SECURITY.md`](SECURITY.md) — original vulnerability assessment & remediation (before → after)
+- [`PENTEST.md`](PENTEST.md) — penetration test + red-team findings & resolutions
+
+---
+
+## 📸 Screenshots
+
+| Landing | Sign in |
+|---|---|
+| ![Landing](docs/landing.png) | ![Sign in](docs/login.png) |
+
+| Dashboard (encrypted files) | Upload (encrypt) |
+|---|---|
+| ![Dashboard](docs/dashboard.png) | ![Upload](docs/upload.png) |
 
 ---
 
@@ -17,22 +33,21 @@ critical web vulnerabilities. Those were assessed and remediated — see
 | Step | Algorithm | Purpose |
 |---|---|---|
 | Key agreement | **X25519 ECDH** (ephemeral-static, "sealed box" style) | Fresh shared secret per file |
-| Key derivation | **HKDF-SHA256** with a random per-file salt | Derive a 256-bit AES key |
-| Encryption | **AES-256-GCM** with a random 96-bit nonce | Confidentiality **and** authenticity (AEAD) |
+| Key derivation | **HKDF-SHA256** with a random per-file salt, `info` bound to `owner\|filename` | Derive a 256-bit AES key |
+| Encryption | **AES-256-GCM** with a random 96-bit nonce and `owner\|filename` as AAD | Confidentiality + authenticity, bound to identity |
 | Integrity | **SHA-256** | Detect at-rest tampering of the stored file |
+| Passwords | **Argon2id** | Memory-hard credential hashing |
 | Key hiding | Zero-width Unicode steganography | Demo: embeds the **public** ephemeral key in the file |
 
 **How it works:** the server holds one long-lived X25519 *receiver* key pair
-(the private key lives only in a git-ignored keystore). Every upload generates a
-fresh *ephemeral* X25519 key pair; ECDH between the ephemeral private key and the
-receiver public key yields a unique shared secret, which HKDF stretches into an
-AES-256 key. The file is sealed with AES-256-GCM. Only non-secret values
-(ephemeral public key, salt, nonce) are stored. To decrypt, the server combines
-its receiver private key with the stored ephemeral public key to reconstruct the
-same secret — the same construction as a libsodium *sealed box* / ECIES.
-
-Because AES-GCM is an AEAD cipher, any modification to the ciphertext causes
-decryption to fail with an authentication error — tampering cannot go unnoticed.
+(private key in a `0600` git-ignored keystore). Every upload generates a fresh
+*ephemeral* X25519 key pair; ECDH with the receiver public key yields a unique
+shared secret, which HKDF stretches into an AES-256 key. The file is sealed with
+AES-256-GCM. Both the key derivation and the ciphertext are **bound to
+`owner|filename`**, so a ciphertext cannot be transplanted onto another user's
+row without failing authentication. Only non-secret values (ephemeral public
+key, salt, nonce) are stored. This is the construction of a libsodium *sealed
+box* / ECIES, plus AEAD identity binding.
 
 ---
 
@@ -128,37 +143,52 @@ flowchart TD
 
 ---
 
+## 🛡️ Security hardening
+
+- **No SQL injection** — Django ORM everywhere (parameterized).
+- **Auth** — Argon2id passwords, enforced password policy, session-based login
+  with **session rotation** on login, **per-IP login throttling**, timing-equalized
+  login, and a login guard on every protected view.
+- **Access control** — per-owner isolation on every file operation (IDOR-safe).
+- **Files** — stored in a **private directory outside the web root**, streamed
+  only through the authenticated view; filenames sanitized; path-traversal
+  guarded; per-user quota; 10 MB upload cap.
+- **Transport/headers** — CSP, `X-Frame-Options: DENY`, `nosniff`,
+  `Referrer-Policy`, `Permissions-Policy`; in production: HTTPS redirect, HSTS,
+  and `Secure`/`HttpOnly`/`SameSite` cookies.
+- **Config** — fail-closed `DEBUG`, mandatory production `SECRET_KEY`, admin
+  surface removed.
+
+Full details and test evidence in [`PENTEST.md`](PENTEST.md).
+
+---
+
 ## 🚀 Setup & run (zero external dependencies)
 
 The app uses **SQLite**, so no database server is required.
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
-
-# 2. Apply migrations (creates db.sqlite3)
 python manage.py migrate
 
-# 3. Run
+# DEBUG is off by default (production-safe); enable it for local dev:
+#   Windows:  set DJANGO_DEBUG=True   (run.bat does this for you)
+#   bash:     export DJANGO_DEBUG=True
 python manage.py runserver
 ```
 
 Then open **http://127.0.0.1:8000/index.html**
 
-Optional environment variables (defaults are fine for local development):
-
-```bash
-DJANGO_SECRET_KEY=<a-long-random-string>   # set for any non-local use
-DJANGO_DEBUG=False                          # set for production
-```
+For production, see **[`DEPLOYMENT.md`](DEPLOYMENT.md)** and
+[`.env.example`](.env.example).
 
 ---
 
 ## 🌐 Application flow
 
-1. **Register** — create an account at `/Signup.html` (passwords are Argon2-hashed).
+1. **Register** — create an account at `/Signup.html` (Argon2-hashed passwords).
 2. **Login** — authenticate at `/UserLogin.html` (session-based).
-3. **Upload** — the file is encrypted (X25519 ECDH → HKDF → AES-256-GCM) and stored.
+3. **Upload** — the file is encrypted (X25519 ECDH → HKDF → AES-256-GCM) and stored privately.
 4. **Download** — the owner recovers and decrypts their own files only.
 5. **Integrity** — verify each stored file against its SHA-256 digest.
 
@@ -171,20 +201,23 @@ Secure-communication-project/
 ├── manage.py
 ├── requirements.txt
 ├── README.md
-├── SECURITY.md                 # vulnerability assessment & remediation report
-├── db.sqlite3                  # created by `migrate` (git-ignored)
-├── Secure/                     # Django project settings
-│   ├── settings.py             # SQLite, Argon2 hashers, env-driven secret/debug
+├── SECURITY.md              # vulnerability assessment & remediation
+├── PENTEST.md               # penetration test + red-team report
+├── DEPLOYMENT.md            # production deployment guide
+├── .env.example             # environment variables template
+├── Secure/
+│   ├── settings.py          # SQLite, Argon2, hardened prod config
 │   └── urls.py
 └── SecureApp/
-    ├── crypto_utils.py         # X25519 ECDH + HKDF + AES-256-GCM + SHA-256 + stego
-    ├── models.py               # Account (hashed pw), SecureFile (crypto params)
-    ├── views.py                # ORM-based views, session auth, ownership checks
+    ├── crypto_utils.py      # X25519 ECDH + HKDF + AES-256-GCM + SHA-256 + stego
+    ├── views.py             # ORM views, session auth, throttling, ownership checks
+    ├── middleware.py        # CSP + security response headers
+    ├── models.py            # Account (Argon2), SecureFile (crypto params)
     ├── migrations/
-    ├── templates/
-    └── static/
-        ├── files/              # encrypted file storage (git-ignored)
-        └── secure_keystore/    # receiver private key (git-ignored, never committed)
+    ├── templates/           # index, UserLogin, Signup, UploadFile, UserScreen
+    └── static/style.css     # self-contained Defender-style UI (no external deps)
+# generated / git-ignored at runtime:
+#   db.sqlite3, secure_store/ (ciphertext), SecureApp/secure_keystore/receiver.key, staticfiles/
 ```
 
 ---
@@ -192,7 +225,7 @@ Secure-communication-project/
 ## ⚠️ Notes
 
 - For **educational purposes** — it demonstrates real cryptographic and secure
-  web-development practices.
-- The receiver private key is generated on first run and stored under
-  `SecureApp/secure_keystore/`, which is git-ignored. In production it should be
-  held in a secrets manager / HSM.
+  web-development practices end to end.
+- The receiver private key is generated on first run under
+  `SecureApp/secure_keystore/` (git-ignored, `0600`). In production, hold it in a
+  secrets manager / KMS — see [`DEPLOYMENT.md`](DEPLOYMENT.md).

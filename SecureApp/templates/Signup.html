@@ -4,94 +4,74 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Secure Communication — X25519 ECDH · AES-256-GCM · SHA-256</title>
+  <title>Secure Communication — Sign up</title>
   <link href="{% static 'style.css' %}" rel="stylesheet" type="text/css">
 </head>
 <body>
 
-  <header class="app-header">
-    <div class="header-inner">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2l7 3v6c0 4.5-3 8.3-7 9-4-.7-7-4.5-7-9V5l7-3z"/>
-          <rect x="9" y="11" width="6" height="5" rx="1"/>
-          <path d="M10.5 11V9.5a1.5 1.5 0 0 1 3 0V11"/>
-        </svg>
-      </span>
-      <span class="brand-text">
-        <span class="brand-title">Secure Communication</span>
-        <span class="brand-sub">X25519 ECDH · AES-256-GCM · SHA-256</span>
-      </span>
+  <header class="topbrand">
+    <div class="inner">
+      <div class="brand">
+        <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 3v6c0 4.5-3 8.3-7 9-4-.7-7-4.5-7-9V5l7-3z"/><path d="M9 12l2 2 4-4"/></svg></span>
+        <span style="display:flex;flex-direction:column">
+          <span class="t1">Secure Communication</span>
+          <span class="t2">X25519 ECDH · AES-256-GCM · SHA-256</span>
+        </span>
+      </div>
+      <span class="spacer"></span>
+      <a class="navlink" href="{% url 'index' %}">Home</a>
+      <a class="navlink" href="{% url 'UserLogin' %}">Login</a>
+      <a class="navlink primary" href="{% url 'Signup' %}">Sign up</a>
     </div>
   </header>
 
-  <nav class="app-nav" aria-label="Primary">
-    <ul>
-      <li><a href="{% url 'index' %}">Home</a></li>
-      <li><a href="{% url 'UserLogin' %}">Login</a></li>
-      <li><a href="{% url 'Signup' %}" class="active" aria-current="page">Sign up</a></li>
-    </ul>
-  </nav>
+  <div class="auth-wrap">
+    <div class="auth-card panel" style="max-width:540px">
+      <div class="panel-pad">
+        <h2>Create your account</h2>
+        <p class="lead">Passwords are stored with Argon2 hashing — never in plaintext.</p>
 
-  <main class="page">
-    <section class="card">
+        {% if data %}
+        <div class="flash"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>{{ data|safe }}</div></div>
+        {% endif %}
 
-      <h1 class="card-title">Create your account</h1>
-      <p class="card-subtitle">Register to securely exchange and verify encrypted files.</p>
-
-      {% if data %}<div class="flash">{{ data|safe }}</div>{% endif %}
-
-      <form method="post" action="{% url 'SignupAction' %}">
-        {% csrf_token %}
-        <div class="form-grid">
-          <div class="field">
-            <label for="t1">Username</label>
-            <input id="t1" name="t1" type="text" required autocomplete="username">
+        <form name="f1" method="post" action="{% url 'SignupAction' %}">
+          {% csrf_token %}
+          <div class="form-grid">
+            <div class="field">
+              <label for="t1">Username</label>
+              <input id="t1" name="t1" type="text" autocomplete="username" required>
+            </div>
+            <div class="field">
+              <label for="t2">Password</label>
+              <input id="t2" name="t2" type="password" autocomplete="new-password" required>
+            </div>
+            <div class="field">
+              <label for="t3">Contact No</label>
+              <input id="t3" name="t3" type="tel" inputmode="numeric" pattern="[0-9]*" required>
+            </div>
+            <div class="field">
+              <label for="t4">Gender</label>
+              <select id="t4" name="t4">
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="t5">Email ID</label>
+              <input id="t5" name="t5" type="email" autocomplete="email" required>
+            </div>
+            <div class="field">
+              <label for="t6">Address</label>
+              <input id="t6" name="t6" type="text" required>
+            </div>
           </div>
-
-          <div class="field">
-            <label for="t2">Password</label>
-            <input id="t2" name="t2" type="password" required autocomplete="new-password">
-          </div>
-
-          <div class="field">
-            <label for="t3">Contact No</label>
-            <input id="t3" name="t3" type="tel" inputmode="numeric" pattern="[0-9]+"
-                   required autocomplete="tel">
-            <span class="hint">Digits only.</span>
-          </div>
-
-          <div class="field">
-            <label for="t4">Gender</label>
-            <select id="t4" name="t4" required>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="t5">Email ID</label>
-            <input id="t5" name="t5" type="email" required autocomplete="email">
-          </div>
-
-          <div class="field">
-            <label for="t6">Address</label>
-            <input id="t6" name="t6" type="text" required autocomplete="street-address">
-          </div>
-        </div>
-
-        <div class="form-actions">
-          <button type="submit" class="btn-block">Submit</button>
-        </div>
-      </form>
-
-      <p class="text-center muted" style="margin-top: 22px;">
-        Already have an account? <a href="{% url 'UserLogin' %}">Log in</a>
-      </p>
-
-    </section>
-  </main>
+          <div class="form-actions"><button type="submit" class="btn btn-primary btn-block">Submit</button></div>
+          <div class="form-sub">Already registered? <a href="{% url 'UserLogin' %}">Sign in</a></div>
+        </form>
+      </div>
+    </div>
+  </div>
 
 </body>
 </html>

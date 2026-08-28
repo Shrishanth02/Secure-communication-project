@@ -59,3 +59,12 @@ SecureApp/static/files/*
 
 # Server-side cryptographic keystore (the receiver private key must never be committed)
 SecureApp/secure_keystore/
+
+# Private encrypted file store (never web-served, never committed)
+secure_store/
+
+# Collected static files
+staticfiles/
+
+# Local environment file (never commit real secrets)
+.env
