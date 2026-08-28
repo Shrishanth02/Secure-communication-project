@@ -16,7 +16,7 @@ review. See the two reports:
 
 ---
 
-## 📸 Screenshots
+## Screenshots
 
 | Landing | Sign in |
 |---|---|
@@ -28,7 +28,7 @@ review. See the two reports:
 
 ---
 
-## 🔐 Cryptographic design
+## Cryptographic design
 
 | Step | Algorithm | Purpose |
 |---|---|---|
@@ -51,7 +51,7 @@ box* / ECIES, plus AEAD identity binding.
 
 ---
 
-## 🗺️ Architecture
+## Architecture
 
 End-to-end cryptographic flow for uploading (encrypt) and downloading (decrypt) a file.
 Red = secret material, blue = public/non-secret parameters, amber = persisted data.
@@ -143,7 +143,7 @@ flowchart TD
 
 ---
 
-## 🛡️ Security hardening
+## Security hardening
 
 - **No SQL injection** — Django ORM everywhere (parameterized).
 - **Auth** — Argon2id passwords, enforced password policy, session-based login
@@ -163,7 +163,7 @@ Full details and test evidence in [`PENTEST.md`](PENTEST.md).
 
 ---
 
-## 🚀 Setup & run (zero external dependencies)
+## Setup & run (zero external dependencies)
 
 The app uses **SQLite**, so no database server is required.
 
@@ -172,8 +172,8 @@ pip install -r requirements.txt
 python manage.py migrate
 
 # DEBUG is off by default (production-safe); enable it for local dev:
-#   Windows:  set DJANGO_DEBUG=True   (run.bat does this for you)
-#   bash:     export DJANGO_DEBUG=True
+# Windows:  set DJANGO_DEBUG=True   (run.bat does this for you)
+# bash:     export DJANGO_DEBUG=True
 python manage.py runserver
 ```
 
@@ -184,7 +184,7 @@ For production, see **[`DEPLOYMENT.md`](DEPLOYMENT.md)** and
 
 ---
 
-## 🌐 Application flow
+## Application flow
 
 1. **Register** — create an account at `/Signup.html` (Argon2-hashed passwords).
 2. **Login** — authenticate at `/UserLogin.html` (session-based).
@@ -194,7 +194,7 @@ For production, see **[`DEPLOYMENT.md`](DEPLOYMENT.md)** and
 
 ---
 
-## 📁 Project structure
+## Project structure
 
 ```
 Secure-communication-project/
@@ -217,12 +217,12 @@ Secure-communication-project/
     ├── templates/           # index, UserLogin, Signup, UploadFile, UserScreen
     └── static/style.css     # self-contained Defender-style UI (no external deps)
 # generated / git-ignored at runtime:
-#   db.sqlite3, secure_store/ (ciphertext), SecureApp/secure_keystore/receiver.key, staticfiles/
+# db.sqlite3, secure_store/ (ciphertext), SecureApp/secure_keystore/receiver.key, staticfiles/
 ```
 
 ---
 
-## ⚠️ Notes
+## Notes
 
 - For **educational purposes** — it demonstrates real cryptographic and secure
   web-development practices end to end.
