@@ -1,65 +1,69 @@
 {% load static %}
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<title>Secure Communication using DiffieHellman Key Exchange, AES & SHA for Data Integrity</title>
-<meta http-equiv="content-type" content="text/html; charset=utf-8" />
-<link href="{% static 'style.css' %}" rel="stylesheet" type="text/css" />
-<script language="javascript">
-	function validate(formObj)
-	{
-	if(formObj.t1.value.length==0)
-	{
-	alert("Please Upload File");
-	formObj.t1.focus();
-	return false;
-	}
-	
-	formObj.actionUpdateData.value="update";
-	return true;
-	}
-	</script>
-	 <script language="javascript" type="text/javascript" src="datetimepicker.js">
-</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Secure Communication — X25519 ECDH · AES-256-GCM · SHA-256</title>
+  <link href="{% static 'style.css' %}" rel="stylesheet" type="text/css">
 </head>
 <body>
-<div class="main">
-  <div class="main_resize">
-    <div class="header">
-      <div class="logo">
-        <h1><span>Secure Communication using DiffieHellman Key Exchange, AES & SHA for Data Integrity</span><small></small></h1>
-      </div>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2l7 3v6c0 4.5-3 8.3-7 9-4-.7-7-4.5-7-9V5l7-3z"/>
+          <rect x="9" y="11" width="6" height="5" rx="1"/>
+          <path d="M10.5 11V9.5a1.5 1.5 0 0 1 3 0V11"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-title">Secure Communication</span>
+        <span class="brand-sub">X25519 ECDH · AES-256-GCM · SHA-256</span>
+      </span>
     </div>
-    <div class="content">
-      <div class="content_bg">
-        <div class="menu_nav">
-         <ul>
-      
-      <li><a href="{% url 'UploadFile' %}">Upload & Secure File using Diffie Key & AES</a></li>
-	   <li><a href="{% url 'DownloadFile' %}">Download Secure File using Diffie Key & AES</a></li>
-	    <li><a href="{% url 'FileIntegrity' %}">Check&nbsp;File&nbsp;Integrity</a></li>
+  </header>
+
+  <nav class="app-nav" aria-label="Primary">
+    <ul>
+      <li><a href="{% url 'UploadFile' %}" class="active" aria-current="page">Upload</a></li>
+      <li><a href="{% url 'DownloadFile' %}">Download</a></li>
+      <li><a href="{% url 'FileIntegrity' %}">Check Integrity</a></li>
       <li><a href="{% url 'Logout' %}">Logout</a></li>
-   </ul>
-          </ul>
+    </ul>
+  </nav>
+
+  <main class="page">
+    <section class="card">
+
+      <h1 class="card-title">Encrypt &amp; upload a file</h1>
+      <p class="card-subtitle">
+        Your file is sealed with an X25519 ECDH shared key and encrypted using
+        AES-256-GCM, then fingerprinted with SHA-256 for integrity verification.
+      </p>
+
+      {% if data %}<div class="flash success">{{ data|safe }}</div>{% endif %}
+
+      <form method="post" action="{% url 'UploadAction' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="form-grid">
+          <div class="field">
+            <label for="t1">Choose a file to encrypt</label>
+            <input id="t1" name="t1" type="file" required>
+            <span class="hint">
+              The file is encrypted client-to-server with X25519 ECDH + AES-256-GCM and never stored in plaintext.
+            </span>
+          </div>
         </div>
-        <div class="hbg"><img src="{% static 'images/header_images.jpg' %}" width="915" height="286" alt="" /></div>
-      				<center>
-<form name="f1" method="post" action={% url 'UploadAction' %} enctype="multipart/form-data" onsubmit="return validate(this);">
-{% csrf_token %}<br/>
-   <h2><b>File Upload Screen</b></h2>
-   
-	<font size="3" color="red"><center>{{ data|safe }}</center></font>
-						
-						<table align="center" width="30%" >
-			 <tr><td><font size='' color="black">Browse&nbsp;Text&nbsp;File</b></td>
-			 <td><input type="file" name="t1" style="font-family: Comic Sans MS" size="30"></td></tr>
-         
-		
-			<tr><td></td><td><input type="submit" value="Upload"></td>
-			</table>
-				</div>	
-					
-				</div>
-				
-					
-	</body>
+        <div class="form-actions">
+          <button type="submit" class="btn-block">Upload &amp; Encrypt</button>
+        </div>
+      </form>
+
+    </section>
+  </main>
+
+</body>
 </html>

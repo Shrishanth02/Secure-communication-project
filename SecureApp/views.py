@@ -171,7 +171,7 @@ def DownloadFile(request):
         return render(request, "UserLogin.html", {"data": "Please login first"})
 
     rows = SecureFile.objects.filter(owner=uname).order_by("-upload_date")
-    output = '<table border=1 align=center width=100%>'
+    output = '<table class="data-table">'
     headers = ["Filename", "Extracted Hidden Ephemeral Public Key", "SHA-256 Hashcode", "Download"]
     output += "<tr>" + "".join("<th>" + h + "</th>" for h in headers) + "</tr>"
 
@@ -223,7 +223,7 @@ def FileIntegrity(request):
         return render(request, "UserLogin.html", {"data": "Please login first"})
 
     rows = SecureFile.objects.filter(owner=uname).order_by("-upload_date")
-    output = '<table border=1 align=center width=100%>'
+    output = '<table class="data-table">'
     headers = ["Filename", "Stored SHA-256 Hashcode", "Check File Integrity"]
     output += "<tr>" + "".join("<th>" + h + "</th>" for h in headers) + "</tr>"
     for row in rows:

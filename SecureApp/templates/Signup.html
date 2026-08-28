@@ -1,113 +1,97 @@
 {% load static %}
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<title>Secure Communication using DiffieHellman Key Exchange, AES & SHA for Data Integrity</title>
-<meta http-equiv="content-type" content="text/html; charset=utf-8" />
-<link href="{% static 'style.css' %}" rel="stylesheet" type="text/css" />
-<script language="javascript">
-	function validate(formObj)
-	{
-	if(formObj.t1.value.length==0)
-	{
-	alert("Please Enter username");
-	formObj.t1.focus();
-	return false;
-	}
-	if(formObj.t2.value.length==0)
-	{
-	alert("Please Enter password");
-	formObj.t2.focus();
-	return false;
-	}
-	
-	if(formObj.t3.value.length==0)
-	{
-	alert("Please Enter Contact No");
-	formObj.t3.focus();
-	return false;
-	}
-	if(isNaN(formObj.t3.value)){
-		alert("Contact No must be numeric");
-		formObj.t3.focus();
-		return false;
-	}
-	if(formObj.t5.value.length==0)
-	{
-	alert("Please Enter Email Id");
-	formObj.t5.focus();
-	return false;
-	}
-	var filter = /^([a-zA-Z0-9_\.\-])+\@([a-z]+\.)+(com)+$/;
-    if (!filter.test(formObj.t5.value)) {
-		window.alert('Please enter valid email address');
-		formObj.t5.focus();
-		return false;
-	}
-	if(formObj.t6.value.length==0)
-	{
-	alert("Please Enter Address");
-	formObj.t6.focus();
-	return false;
-	}
-	return true;
-	}
-	</script>
-	 <script language="javascript" type="text/javascript" src="datetimepicker.js">
-</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Secure Communication — X25519 ECDH · AES-256-GCM · SHA-256</title>
+  <link href="{% static 'style.css' %}" rel="stylesheet" type="text/css">
 </head>
 <body>
-<div class="main">
-  <div class="main_resize">
-    <div class="header">
-      <div class="logo">
-        <h1><span>Secure Communication using DiffieHellman Key Exchange, AES & SHA for Data Integrity</span><small></small></h1>
-      </div>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2l7 3v6c0 4.5-3 8.3-7 9-4-.7-7-4.5-7-9V5l7-3z"/>
+          <rect x="9" y="11" width="6" height="5" rx="1"/>
+          <path d="M10.5 11V9.5a1.5 1.5 0 0 1 3 0V11"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-title">Secure Communication</span>
+        <span class="brand-sub">X25519 ECDH · AES-256-GCM · SHA-256</span>
+      </span>
     </div>
-    <div class="content">
-      <div class="content_bg">
-        <div class="menu_nav">
-        <ul>
+  </header>
+
+  <nav class="app-nav" aria-label="Primary">
+    <ul>
       <li><a href="{% url 'index' %}">Home</a></li>
-      <li><a href="{% url 'UserLogin' %}">User Login</a></li>
-	 <li><a href="{% url 'Signup' %}">New User Signup Here</a></li>
-   </ul>
-          </ul>
+      <li><a href="{% url 'UserLogin' %}">Login</a></li>
+      <li><a href="{% url 'Signup' %}" class="active" aria-current="page">Sign up</a></li>
+    </ul>
+  </nav>
+
+  <main class="page">
+    <section class="card">
+
+      <h1 class="card-title">Create your account</h1>
+      <p class="card-subtitle">Register to securely exchange and verify encrypted files.</p>
+
+      {% if data %}<div class="flash">{{ data|safe }}</div>{% endif %}
+
+      <form method="post" action="{% url 'SignupAction' %}">
+        {% csrf_token %}
+        <div class="form-grid">
+          <div class="field">
+            <label for="t1">Username</label>
+            <input id="t1" name="t1" type="text" required autocomplete="username">
+          </div>
+
+          <div class="field">
+            <label for="t2">Password</label>
+            <input id="t2" name="t2" type="password" required autocomplete="new-password">
+          </div>
+
+          <div class="field">
+            <label for="t3">Contact No</label>
+            <input id="t3" name="t3" type="tel" inputmode="numeric" pattern="[0-9]+"
+                   required autocomplete="tel">
+            <span class="hint">Digits only.</span>
+          </div>
+
+          <div class="field">
+            <label for="t4">Gender</label>
+            <select id="t4" name="t4" required>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="t5">Email ID</label>
+            <input id="t5" name="t5" type="email" required autocomplete="email">
+          </div>
+
+          <div class="field">
+            <label for="t6">Address</label>
+            <input id="t6" name="t6" type="text" required autocomplete="street-address">
+          </div>
         </div>
-        <div class="hbg"><img src="{% static 'images/header_images.jpg' %}" width="915" height="286" alt="" /></div>
-      				<center>
-<form name="f1" method="post" action={% url 'SignupAction' %} onsubmit="return validate(this);">
-{% csrf_token %}<br/>
-   <h2><b>New User Signup Screen</b></h2>
-   
-	<font size="" color="red"><center>{{ data|safe }}</center></font>
-						
-						<table align="center" width="30%" >
-			 <tr><td><font size='' color="black">Username</b></td>
-			 <td><input type="text" name="t1" style="font-family: Comic Sans MS" size="30"></td></tr>
-         
-		  <tr><td><font size='' color="black">Password</b></td><td><input name="t2" type="password" size="30"></td></tr>
 
-			<tr><td><font size='' color="black">Contact&nbsp;No</b></td>
-			<td><input name="t3" type="Text" size="15"></td></td></tr>
+        <div class="form-actions">
+          <button type="submit" class="btn-block">Submit</button>
+        </div>
+      </form>
 
-		    <tr><td><font size='' color="black">Gender</b></td><td><select name="t4" style="font-family: Comic Sans MS">
-		   <option value="Male">Male</option>
-		   <option value="Female">Female</option>
-		   </select>
-		   </td></tr>
+      <p class="text-center muted" style="margin-top: 22px;">
+        Already have an account? <a href="{% url 'UserLogin' %}">Log in</a>
+      </p>
 
-		   <tr><td><font size='' color="black">Email&nbsp;ID</b></td><td><input type="text" name="t5" style="font-family: Comic Sans MS" size=50/></td></tr>
+    </section>
+  </main>
 
-          <tr><td><font size='' color="black">Address</b></td><td><input name="t6" type="Text" size="70"></td></td></tr>
-
-		  
-
-			<tr><td></td><td><input type="submit" value="Submit"></td>
-			</table>
-				</div>	
-					
-				</div>
-				
-					
-	</body>
+</body>
 </html>

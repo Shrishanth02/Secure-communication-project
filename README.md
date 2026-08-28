@@ -36,6 +36,98 @@ decryption to fail with an authentication error — tampering cannot go unnotice
 
 ---
 
+## 🗺️ Architecture
+
+End-to-end cryptographic flow for uploading (encrypt) and downloading (decrypt) a file.
+Red = secret material, blue = public/non-secret parameters, amber = persisted data.
+
+```mermaid
+flowchart TD
+    subgraph SERVER["Server Identity (long-lived)"]
+        RKP["Receiver X25519 key pair<br/>private key in git-ignored keystore<br/>SecureApp/secure_keystore/receiver.key"]
+        RPRIV["Receiver PRIVATE key"]
+        RPUB["Receiver PUBLIC key"]
+        RKP --> RPRIV
+        RKP --> RPUB
+    end
+
+    subgraph UP["Upload / Encrypt (per file)"]
+        direction TB
+        PT["Plaintext file bytes"]
+        EKP["Generate fresh ephemeral<br/>X25519 key pair"]
+        EPRIV["Ephemeral PRIVATE key"]
+        EPUB["Ephemeral PUBLIC key"]
+        EKP --> EPRIV
+        EKP --> EPUB
+        ECDH1["ECDH exchange<br/>ephemeral_private x receiver_public"]
+        SS1["Shared secret (per file)"]
+        SALT["Random 16-byte salt"]
+        HKDF1["HKDF-SHA256(shared secret, salt)<br/>info=secure-communication-file-encryption"]
+        AESKEY1["AES-256 key (32 bytes)"]
+        NONCE["Random 96-bit nonce"]
+        GCM1["AES-256-GCM encrypt<br/>(AEAD: confidentiality + integrity)"]
+        CT["Ciphertext + 128-bit auth tag"]
+        STEG["base64 + zero-width steganography<br/>hides ephemeral PUBLIC key (non-secret)"]
+
+        EPRIV --> ECDH1
+        RPUB -.-> ECDH1
+        ECDH1 --> SS1
+        SS1 --> HKDF1
+        SALT --> HKDF1
+        HKDF1 --> AESKEY1
+        PT --> GCM1
+        AESKEY1 --> GCM1
+        NONCE --> GCM1
+        GCM1 --> CT
+        EPUB --> STEG
+    end
+
+    subgraph STORE["Persistence"]
+        DISK[("Ciphertext file on disk<br/>SecureApp/static/files/")]
+        DB[("Database (SQLite / Django ORM)<br/>SecureFile row:<br/>ephemeral_pub, salt, nonce,<br/>SHA-256(plaintext file)")]
+    end
+
+    CT --> DISK
+    STEG --> DB
+    EPUB --> DB
+    SALT --> DB
+    NONCE --> DB
+    PT -->|"SHA-256 digest"| DB
+
+    subgraph DOWN["Download / Decrypt"]
+        direction TB
+        READ["Read stored ciphertext + DB params<br/>ephemeral_pub, salt, nonce"]
+        ECDH2["ECDH exchange<br/>receiver_private x ephemeral_public"]
+        SS2["Same shared secret"]
+        HKDF2["HKDF-SHA256(shared secret, salt)"]
+        AESKEY2["Same AES-256 key"]
+        GCM2["AES-256-GCM decrypt<br/>verify auth tag"]
+        FAIL["InvalidTag raised<br/>(tampered / wrong key)"]
+        OUT["Recovered plaintext bytes"]
+
+        READ --> ECDH2
+        ECDH2 --> SS2
+        SS2 --> HKDF2
+        HKDF2 --> AESKEY2
+        AESKEY2 --> GCM2
+        GCM2 -->|"tag valid"| OUT
+        GCM2 -->|"tag invalid"| FAIL
+    end
+
+    DISK --> READ
+    DB --> READ
+    RPRIV -.-> ECDH2
+
+    classDef secret fill:#7a1f2b,stroke:#e06c75,color:#fff;
+    classDef public fill:#1f3a5f,stroke:#61afef,color:#fff;
+    classDef store fill:#3a2f1f,stroke:#e5c07b,color:#fff;
+    class RPRIV,EPRIV,SS1,SS2,AESKEY1,AESKEY2 secret;
+    class RPUB,EPUB,SALT,NONCE public;
+    class DISK,DB store;
+```
+
+---
+
 ## 🚀 Setup & run (zero external dependencies)
 
 The app uses **SQLite**, so no database server is required.
